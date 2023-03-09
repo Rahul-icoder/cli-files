@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"io/fs"
 	"log"
 	"os"
 	"path"
+	"path/filepath"
 
 	"github.com/Rahul-icoder/cli-files/shared"
 	ui "github.com/gizak/termui/v3"
@@ -21,41 +23,63 @@ func backwardNavigation(list *widgets.List, navigationPath *string) {
 		files := shared.ReadDir(*navigationPath)
 		list.Rows = []string{}
 		for _, file := range files {
-
-			if len(file.Name()) > 0 {
-				if file.IsDir() && file.Name()[0] != '.' {
-					list.Rows = append(list.Rows, file.Name())
-				}
+			if file.IsDir() && file.Name()[0] == '.' {
+				continue
 			}
+			list.Rows = append(list.Rows, file.Name())
 		}
 	}
 }
 
 func forwardNavigation(list *widgets.List, navigationPath *string, selectedFile string) {
 	*navigationPath = path.Join(*navigationPath, selectedFile)
-	// changing title
-	list.Title = *navigationPath
 	info, err := os.Stat(*navigationPath)
 	shared.CheckError(err)
-
 	if info.IsDir() {
+		// changing title
 		files := shared.ReadDir(*navigationPath)
 		list.Rows = []string{}
 		for _, file := range files {
-			if len(file.Name()) > 0 {
-				if file.IsDir() && file.Name()[0] != '.' {
-					list.Rows = append(list.Rows, file.Name())
-				}
+			if file.IsDir() && file.Name()[0] == '.' {
+				continue
 			}
+			list.Rows = append(list.Rows, file.Name())
 		}
+	} else {
+		*navigationPath = path.Dir(*navigationPath)
+		// open the file
+	}
+	list.Title = *navigationPath
+}
+
+func setFileDetails(fileDetails *widgets.Paragraph, navigationPath *string, selectedFile string) {
+	filePath := path.Join(*navigationPath, selectedFile)
+	info, err := os.Stat(filePath)
+	shared.CheckError(err)
+	modTime := info.ModTime().Format("2006-01-02 15:04")
+	if info.IsDir() {
+		var fileSize int64 = 0
+		filepath.Walk(filePath, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if !info.IsDir() {
+				fileSize += info.Size()
+			}
+			return nil
+		})
+		formatedSize := shared.ReadablefileSize(fileSize)
+		result := fmt.Sprintf("%s (S)          %s (M)        DIR (T)", formatedSize, modTime)
+		fileDetails.Text = result
+	} else {
+		fileSize := info.Size()
+		formatedSize := shared.ReadablefileSize(fileSize)
+		result := fmt.Sprintf("%s (S)          %s (M)        DIR (T)", formatedSize, modTime)
+		fileDetails.Text = result
 	}
 }
 
-func setFileDetails() {
-
-}
-
-func keyEvent(l *widgets.List, navigationPath *string) {
+func keyEvent(l *widgets.List, fileDetails *widgets.Paragraph, navigationPath *string, grid *ui.Grid) {
 	uiEvents := ui.PollEvents()
 	for {
 
@@ -66,10 +90,7 @@ func keyEvent(l *widgets.List, navigationPath *string) {
 		case "j", "<Down>":
 			l.ScrollDown()
 		case "k", "<Up>":
-			// selectedFile := l.Rows[l.SelectedRow]
 			l.ScrollUp()
-		case "<C-u>":
-			l.ScrollHalfPageUp()
 		// navigate in backward direction
 		case "h":
 			backwardNavigation(l, navigationPath)
@@ -77,17 +98,19 @@ func keyEvent(l *widgets.List, navigationPath *string) {
 		// navigate in forward direction
 		case "l":
 			// checking condition because of index out of bound error
-			// if l.SelectedRow < len(l.Rows) {
-			selectedFile := l.Rows[l.SelectedRow]
-			forwardNavigation(l, navigationPath, selectedFile)
-			// }
+			if l.SelectedRow < len(l.Rows) {
+				selectedFile := l.Rows[l.SelectedRow]
+				forwardNavigation(l, navigationPath, selectedFile)
+			}
 		case "<navigationPath>":
 			l.ScrollTop()
 		}
-		if l.SelectedRow > len(l.Rows) {
-			l.SelectedRow = 1
+		// set file details in footer
+		if l.SelectedRow < len(l.Rows) {
+			selectedFile := l.Rows[l.SelectedRow]
+			setFileDetails(fileDetails, navigationPath, selectedFile)
 		}
-		ui.Render(l)
+		ui.Render(grid)
 	}
 }
 
@@ -123,15 +146,16 @@ func renderFiles(files []fs.DirEntry, navigationPath *string) {
 	// styling fileDetails
 	fileDetails.Border = false
 	fileDetails.PaddingLeft = 1
-	fileDetails.Text = "rxrx      1mb    2:02   "
 	fileDetails.TextStyle.Fg = ui.ColorGreen
 	for _, file := range files {
-		if file.IsDir() && file.Name()[0] != '.' {
-			list.Rows = append(list.Rows, file.Name())
+		if file.IsDir() && file.Name()[0] == '.' {
+			continue
 		}
+		list.Rows = append(list.Rows, file.Name())
+
 	}
 	ui.Render(grid)
-	keyEvent(list, navigationPath) // keyboard event
+	keyEvent(list, fileDetails, navigationPath, grid) // keyboard event
 }
 func main() {
 	path, err := os.UserHomeDir()
