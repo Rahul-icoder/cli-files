@@ -2,19 +2,23 @@ package main
 
 import (
 	"fmt"
-	"io/fs"
-	"log"
-	"os"
-	"path"
-	"path/filepath"
-
 	"github.com/Rahul-icoder/cli-files/shared"
 	ui "github.com/gizak/termui/v3"
 	"github.com/gizak/termui/v3/widgets"
+	"io/fs"
+	"log"
+	"os"
+	"os/exec"
+	"path"
 )
 
 func backwardNavigation(list *widgets.List, navigationPath *string) {
+	homePath, _ := os.UserHomeDir()
+	if *navigationPath == homePath {
+		return
+	}
 	*navigationPath = path.Join(*navigationPath, "..")
+
 	// changing title
 	list.Title = *navigationPath
 	info, err := os.Stat(*navigationPath)
@@ -46,8 +50,14 @@ func forwardNavigation(list *widgets.List, navigationPath *string, selectedFile 
 			list.Rows = append(list.Rows, file.Name())
 		}
 	} else {
-		*navigationPath = path.Dir(*navigationPath)
 		// open the file
+		command := exec.Command("open", *navigationPath)
+		command.Stdout = os.Stdout
+		command.Stderr = os.Stderr
+		if err := command.Run(); err != nil {
+			panic(err)
+		}
+		*navigationPath = path.Dir(*navigationPath)
 	}
 	list.Title = *navigationPath
 }
@@ -57,22 +67,12 @@ func setFileDetails(fileDetails *widgets.Paragraph, navigationPath *string, sele
 	info, err := os.Stat(filePath)
 	shared.CheckError(err)
 	modTime := info.ModTime().Format("2006-01-02 15:04")
+	fileSize := info.Size()
 	if info.IsDir() {
-		var fileSize int64 = 0
-		filepath.Walk(filePath, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-			if !info.IsDir() {
-				fileSize += info.Size()
-			}
-			return nil
-		})
 		formatedSize := shared.ReadablefileSize(fileSize)
 		result := fmt.Sprintf("%s (S)          %s (M)        DIR (T)", formatedSize, modTime)
 		fileDetails.Text = result
 	} else {
-		fileSize := info.Size()
 		formatedSize := shared.ReadablefileSize(fileSize)
 		result := fmt.Sprintf("%s (S)          %s (M)        DIR (T)", formatedSize, modTime)
 		fileDetails.Text = result
@@ -158,9 +158,9 @@ func renderFiles(files []fs.DirEntry, navigationPath *string) {
 	keyEvent(list, fileDetails, navigationPath, grid) // keyboard event
 }
 func main() {
-	path, err := os.UserHomeDir()
+	homePath, err := os.UserHomeDir()
 	shared.CheckError(err)
-	navigationPath := &path
+	navigationPath := &homePath
 	files := shared.ReadDir(*navigationPath)
 	renderFiles(files, navigationPath) // render ui
 
